@@ -182,6 +182,135 @@ fn cfg_matches() {
 }
 
 #[test]
+fn platform_matches_bridge_bounded_witnesses() {
+    struct Case {
+        label: &'static str,
+        platform: Platform,
+        target_name: &'static str,
+        cfg: Vec<Cfg>,
+        expected: bool,
+    }
+
+    let cases = vec![
+        Case {
+            label: "linux + feature + unix matches the first mixed branch",
+            platform: Platform::Cfg(CfgExpr::Any(vec![
+                CfgExpr::All(vec![
+                    CfgExpr::Value(c!(unix)),
+                    CfgExpr::Value(c!(target_os = "linux")),
+                    CfgExpr::Value(c!(feature = "std")),
+                ]),
+                CfgExpr::All(vec![
+                    CfgExpr::Not(Box::new(CfgExpr::Value(c!(target_env = "msvc")))),
+                    CfgExpr::Value(c!(target_arch = "x86_64")),
+                ]),
+            ])),
+            target_name: "ignored-name",
+            cfg: vec![c!(unix), c!(target_os = "linux"), c!(feature = "std")],
+            expected: true,
+        },
+        Case {
+            label: "reordered duplicate cfg atoms stay true",
+            platform: Platform::Cfg(CfgExpr::All(vec![
+                CfgExpr::Value(c!(feature = "std")),
+                CfgExpr::Value(c!(unix)),
+                CfgExpr::Value(c!(target_os = "linux")),
+            ])),
+            target_name: "ignored-name",
+            cfg: vec![
+                c!(target_os = "linux"),
+                c!(unix),
+                c!(feature = "std"),
+                c!(unix),
+            ],
+            expected: true,
+        },
+        Case {
+            label: "x86_64 with non-msvc env matches the second mixed branch",
+            platform: Platform::Cfg(CfgExpr::All(vec![
+                CfgExpr::Not(Box::new(CfgExpr::Value(c!(target_env = "msvc")))),
+                CfgExpr::Value(c!(target_arch = "x86_64")),
+            ])),
+            target_name: "ignored-name",
+            cfg: vec![c!(target_arch = "x86_64"), c!(target_env = "gnu")],
+            expected: true,
+        },
+        Case {
+            label: "missing feature leaves the mixed branch false",
+            platform: Platform::Cfg(CfgExpr::All(vec![
+                CfgExpr::Value(c!(unix)),
+                CfgExpr::Value(c!(target_os = "linux")),
+                CfgExpr::Value(c!(feature = "std")),
+            ])),
+            target_name: "ignored-name",
+            cfg: vec![c!(unix), c!(target_os = "linux")],
+            expected: false,
+        },
+        Case {
+            label: "msvc env blocks the not() branch",
+            platform: Platform::Cfg(CfgExpr::All(vec![
+                CfgExpr::Not(Box::new(CfgExpr::Value(c!(target_env = "msvc")))),
+                CfgExpr::Value(c!(target_arch = "x86_64")),
+            ])),
+            target_name: "ignored-name",
+            cfg: vec![c!(target_arch = "x86_64"), c!(target_env = "msvc")],
+            expected: false,
+        },
+        Case {
+            label: "true is always true",
+            platform: Platform::Cfg(CfgExpr::True),
+            target_name: "ignored-name",
+            cfg: vec![],
+            expected: true,
+        },
+        Case {
+            label: "false is always false",
+            platform: Platform::Cfg(CfgExpr::False),
+            target_name: "ignored-name",
+            cfg: vec![c!(unix)],
+            expected: false,
+        },
+        Case {
+            label: "all() is vacuously true",
+            platform: Platform::Cfg(CfgExpr::All(vec![])),
+            target_name: "ignored-name",
+            cfg: vec![],
+            expected: true,
+        },
+        Case {
+            label: "any() is false",
+            platform: Platform::Cfg(CfgExpr::Any(vec![])),
+            target_name: "ignored-name",
+            cfg: vec![c!(unix)],
+            expected: false,
+        },
+        Case {
+            label: "named platforms use exact target equality",
+            platform: Platform::Name("x86_64-unknown-linux-gnu".to_string()),
+            target_name: "x86_64-unknown-linux-gnu",
+            cfg: vec![c!(unix), c!(target_os = "linux"), c!(feature = "std")],
+            expected: true,
+        },
+        Case {
+            label: "named platforms reject non-matching target names",
+            platform: Platform::Name("x86_64-unknown-linux-gnu".to_string()),
+            target_name: "aarch64-apple-darwin",
+            cfg: vec![c!(unix), c!(target_os = "linux"), c!(feature = "std")],
+            expected: false,
+        },
+    ];
+
+    for case in cases {
+        assert_eq!(
+            case.platform.matches(case.target_name, &case.cfg),
+            case.expected,
+            "{}",
+            case.label
+        );
+    }
+}
+
+#[test]
 fn bad_target_name() {
     bad::<Platform>(
         "any(cfg(unix), cfg(windows))",
